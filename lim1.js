@@ -5,7 +5,6 @@ const readline = require('readline');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// Pastikan semua warna yang digunakan oleh logger baru ada di sini
 const colors = {
     reset: "\x1b[0m",
     cyan: "\x1b[36m",
@@ -16,10 +15,9 @@ const colors = {
     bold: "\x1b[1m",
     magenta: "\x1b[35m",
     blue: "\x1b[34m",
-    gray: "\x1b[90m", // Menambahkan warna abu-abu yang diperlukan oleh logger.section
+    gray: "\x1b[90m",
 };
 
-// Logger yang baru
 const logger = {
     info: (msg) => console.log(`${colors.cyan}[i] ${msg}${colors.reset}`),
     warn: (msg) => console.log(`${colors.yellow}[!] ${msg}${colors.reset}`),
@@ -47,7 +45,6 @@ const logger = {
     // Menambahkan metode countdown yang ada di logger lama, karena ini adalah output langsung
     countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
 };
-
 
 const PHAROS_CHAIN_ID = 688688;
 const PHAROS_RPC_URLS = ['https://testnet.dplabs-internal.com'];
