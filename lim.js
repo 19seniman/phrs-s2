@@ -15,7 +15,7 @@ const colors = {
     bold: "\x1b[1m",
     magenta: "\x1b[35m",
     blue: "\x1b[34m",
-    gray: "\x1b[90m", 
+    gray: "\x1b[90m",
 };
 
 const logger = {
@@ -29,7 +29,7 @@ const logger = {
     summary: (msg) => console.log(`${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}`),
     banner: () => {
         const border = `${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset}`;
-        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉   ║${colors.reset}`;
+        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉    ║${colors.reset}`;
         const bottomBorder = `${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset}`;
         
         console.log(`\n${border}`);
@@ -45,4 +45,33 @@ const logger = {
     countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
 };
 
+function displayWelcomeMessage() {
+    console.log(`\n${colors.white}${colors.bold}Hi !!${colors.reset}`);
+    console.log(`${colors.white}${colors.bold}How Are you Today??${colors.reset}\n`);
+    console.log(`${colors.yellow}Donate For Watermelon 🍉${colors.reset}`);
+    console.log(`${colors.yellow}Usdt Or USdc${colors.reset}`);
+    console.log(`${colors.green}${colors.bold}0xf01fb9a6855f175d3f3e28e00fa617009c38ef59${colors.reset}\n`);
+    
+    const telegramUsername = 'VirtualAssistant19_bot';
+    const telegramMessage = 'select menu /script_access_on_github';
+    const telegramLink = `https://t.me/${telegramUsername}?start=${encodeURIComponent(telegramMessage)}`;
+    
+    console.log(`${colors.cyan}Send your proof to Telegram: ${colors.bold}${telegramLink}${colors.reset}\n`);
+}
 
+async function main() {
+    logger.banner();
+    displayWelcomeMessage();
+    logger.section("Application Start");
+
+    logger.info("Script is running...");
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    logger.success("Script finished successfully!");
+}
+
+main().catch(error => {
+    logger.critical(`An unhandled error occurred: ${error.message}`);
+    console.error(error);
+});
