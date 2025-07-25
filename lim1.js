@@ -5,6 +5,7 @@ const readline = require('readline');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
+// Pastikan semua warna yang digunakan oleh logger baru ada di sini
 const colors = {
     reset: "\x1b[0m",
     cyan: "\x1b[36m",
@@ -15,35 +16,38 @@ const colors = {
     bold: "\x1b[1m",
     magenta: "\x1b[35m",
     blue: "\x1b[34m",
-    gray: "\x1b[90m", 
+    gray: "\x1b[90m", // Menambahkan warna abu-abu yang diperlukan oleh logger.section
 };
 
+// Logger yang baru
 const logger = {
-    info: (msg) => console.log(${colors.cyan}[i] ${msg}${colors.reset}),
-    warn: (msg) => console.log(${colors.yellow}[!] ${msg}${colors.reset}),
-    error: (msg) => console.log(${colors.red}[x] ${msg}${colors.reset}),
-    success: (msg) => console.log(${colors.green}[+] ${msg}${colors.reset}),
-    loading: (msg) => console.log(${colors.magenta}[*] ${msg}${colors.reset}),
-    step: (msg) => console.log(${colors.blue}[>] ${colors.bold}${msg}${colors.reset}),
-    critical: (msg) => console.log(${colors.red}${colors.bold}[FATAL] ${msg}${colors.reset}),
-    summary: (msg) => console.log(${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}),
+    info: (msg) => console.log(`${colors.cyan}[i] ${msg}${colors.reset}`),
+    warn: (msg) => console.log(`${colors.yellow}[!] ${msg}${colors.reset}`),
+    error: (msg) => console.log(`${colors.red}[x] ${msg}${colors.reset}`),
+    success: (msg) => console.log(`${colors.green}[+] ${msg}${colors.reset}`),
+    loading: (msg) => console.log(`${colors.magenta}[*] ${msg}${colors.reset}`),
+    step: (msg) => console.log(`${colors.blue}[>] ${colors.bold}${msg}${colors.reset}`),
+    critical: (msg) => console.log(`${colors.red}${colors.bold}[FATAL] ${msg}${colors.reset}`),
+    summary: (msg) => console.log(`${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}`),
     banner: () => {
-        const border = ${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset};
-        const title = ${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉   ║${colors.reset};
-        const bottomBorder = ${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset};
+        const border = `${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset}`;
+        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉   ║${colors.reset}`;
+        const bottomBorder = `${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset}`;
         
-        console.log(\n${border});
-        console.log(${title});
-        console.log(${bottomBorder}\n);
+        console.log(`\n${border}`);
+        console.log(`${title}`);
+        console.log(`${bottomBorder}\n`);
     },
     section: (msg) => {
         const line = '─'.repeat(40);
-        console.log(\n${colors.gray}${line}${colors.reset});
-        if (msg) console.log(${colors.white}${colors.bold} ${msg} ${colors.reset});
-        console.log(${colors.gray}${line}${colors.reset}\n);
+        console.log(`\n${colors.gray}${line}${colors.reset}`);
+        if (msg) console.log(`${colors.white}${colors.bold} ${msg} ${colors.reset}`);
+        console.log(`${colors.gray}${line}${colors.reset}\n`);
     },
-    countdown: (msg) => process.stdout.write(\r${colors.blue}[⏰] ${msg}${colors.reset}),
+    // Menambahkan metode countdown yang ada di logger lama, karena ini adalah output langsung
+    countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
 };
+
 
 const PHAROS_CHAIN_ID = 688688;
 const PHAROS_RPC_URLS = ['https://testnet.dplabs-internal.com'];
@@ -112,11 +116,11 @@ async function buildFallbackProvider(rpcUrls, chainId, name) {
                     return localProvider;
                 } catch (e) {
                     if (e.code === 'UNKNOWN_ERROR' && e.error && e.error.code === -32603) {
-                        logger.warn(RPC busy, retrying ${i + 1}/3...);
+                        logger.warn(`RPC busy, retrying ${i + 1}/3...`);
                         await new Promise(r => setTimeout(r, 2000));
                         continue;
                     }
-                    logger.error(Error connecting to RPC: ${e.message});
+                    logger.error(`Error connecting to RPC: ${e.message}`);
                     throw e;
                 }
             }
@@ -132,12 +136,12 @@ function getRandomUserAgent() {
 function loadPrivateKeys() {
     const keys = [];
     let i = 1;
-    while (process.env[PRIVATE_KEY_${i}]) {
-        const pk = process.env[PRIVATE_KEY_${i}];
+    while (process.env[`PRIVATE_KEY_${i}`]) {
+        const pk = process.env[`PRIVATE_KEY_${i}`];
         if (pk.startsWith('0x') && pk.length === 66) {
             keys.push(pk);
         } else {
-            logger.warn(Invalid PRIVATE_KEY_${i} in .env, skipping...);
+            logger.warn(`Invalid PRIVATE_KEY_${i} in .env, skipping...`);
         }
         i++;
     }
@@ -152,20 +156,20 @@ function loadProxies() {
             logger.warn('proxies.txt is empty. Continuing without proxies.');
             return [];
         }
-        logger.success(${proxies.length} proxies loaded from proxies.txt);
+        logger.success(`${proxies.length} proxies loaded from proxies.txt`);
         return proxies;
     } catch (error) {
         if (error.code === 'ENOENT') {
             logger.warn('proxies.txt not found. Continuing without proxies.');
         } else {
-            logger.error(Error reading proxies.txt: ${error.message});
+            logger.error(`Error reading proxies.txt: ${error.message}`);
         }
         return [];
     }
 }
 
 function getProxyAgent(proxies) {
-    if (!proxies  proxies.length === 0) {
+    if (!proxies || proxies.length === 0) {
         return null;
     }
     const randomProxy = proxies[Math.floor(Math.random() * proxies.length)];
@@ -298,7 +302,7 @@ async function craftTokens(wallet) {
         
         return true;
     } catch (e) {
-        logger.error(`Craft tokens failed: ${e.reason  e.message}`);
+        logger.error(`Craft tokens failed: ${e.reason || e.message}`);
         throw e;
     }
 }
@@ -310,7 +314,7 @@ async function checkTokenHolding(accessToken, proxyAgent) {
             headers: {
                 'accept': 'application/json, text/plain, */*',
                 'accept-language': 'en-US,en;q=0.5',
-                'authorization': Bearer ${accessToken},
+                'authorization': `Bearer ${accessToken}`,
                 'user-agent': getRandomUserAgent()
             },
             httpsAgent: proxyAgent
@@ -318,13 +322,13 @@ async function checkTokenHolding(accessToken, proxyAgent) {
         
         if (response.data.status === 'success') {
             const isHolding = response.data.data.isHoldingToken;
-            logger.success(API Token holding check: ${isHolding ? 'YES' : 'NO'});
+            logger.success(`API Token holding check: ${isHolding ? 'YES' : 'NO'}`);
             return isHolding;
         } else {
             throw new Error('Check holding failed: ' + JSON.stringify(response.data));
         }
     } catch (e) {
-        logger.error(Check token holding failed: ${e.message});
+        logger.error(`Check token holding failed: ${e.message}`);
         throw e;
     }
 }
@@ -339,7 +343,7 @@ async function getSignature(wallet, accessToken, proxyAgent, nftType = 0) {
             headers: {
                 'accept': 'application/json, text/plain, */*',
                 'accept-language': 'en-US,en;q=0.5',
-                'authorization': Bearer ${accessToken},
+                'authorization': `Bearer ${accessToken}`,
                 'content-type': 'application/json',
                 'user-agent': getRandomUserAgent()
             },
@@ -353,7 +357,7 @@ async function getSignature(wallet, accessToken, proxyAgent, nftType = 0) {
             throw new Error('Get signature failed: ' + JSON.stringify(response.data));
         }
     } catch (e) {
-        logger.error(Get signature failed: ${e.message});
+        logger.error(`Get signature failed: ${e.message}`);
         throw e;
     }
 }
@@ -366,7 +370,7 @@ async function mintNFT(wallet, signatureData) {
         
         const csBalance = await csTokenContract.balanceOf(wallet.address);
         if (csBalance < requiredAmount) {
-            throw new Error(Insufficient CS tokens. Required: 100, Available: ${ethers.formatUnits(csBalance, 18)});
+            throw new Error(`Insufficient CS tokens. Required: 100, Available: ${ethers.formatUnits(csBalance, 18)}`);
         }
         
         const allowance = await csTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
@@ -379,7 +383,7 @@ async function mintNFT(wallet, signatureData) {
         
         const currentTime = Math.floor(Date.now() / 1000);
         if (currentTime >= signatureData.expiresAt) {
-            throw new Error(Signature is already expired! Check your system's clock.);
+            throw new Error(`Signature is already expired! Check your system's clock.`);
         }
 
         const CORRECT_METHOD_ID = '0x75e7e053';
@@ -396,7 +400,7 @@ async function mintNFT(wallet, signatureData) {
             gasLimit: 400000
         });
         
-        logger.success(NFT mint transaction sent! TX Hash: ${tx.hash});
+        logger.success(`NFT mint transaction sent! TX Hash: ${tx.hash}`);
         const receipt = await tx.wait();
         
         if (receipt.status === 0) {
@@ -407,13 +411,13 @@ async function mintNFT(wallet, signatureData) {
         
         return true;
     } catch (e) {
-        logger.error(NFT mint failed: ${e.reason || e.message});
+        logger.error(`NFT mint failed: ${e.reason || e.message}`);
         throw e;
     }
 }
 
 async function executeAquaFluxFlow(wallet, proxyAgent) {
-    logger.section(Starting AquaFlux Flow for wallet ${wallet.address});
+    logger.section(`Starting AquaFlux Flow for wallet ${wallet.address}`);
     try {
         const accessToken = await aquaFluxLogin(wallet, proxyAgent);
         if (!accessToken) {
@@ -429,10 +433,10 @@ async function executeAquaFluxFlow(wallet, proxyAgent) {
         logger.success('AquaFlux flow completed successfully!');
         return true;
     } catch (e) {
-        logger.error(AquaFlux flow failed: ${e.message});
+        logger.error(`AquaFlux flow failed: ${e.message}`);
         return false;
     } finally {
-        logger.section(Finished AquaFlux Flow for wallet ${wallet.address});
+        logger.section(`Finished AquaFlux Flow for wallet ${wallet.address}`);
     }
 }
 
@@ -456,7 +460,7 @@ async function fetchWithTimeout(url, options, timeout = 15000) {
         if (axios.isCancel(err)) {
             throw new Error('Request timed out');
         }
-        throw new Error(Network or API error: ${err.message});
+        throw new Error(`Network or API error: ${err.message}`);
     }
 }
 
@@ -466,9 +470,9 @@ async function robustFetchDodoRoute(url, proxyAgent) {
             const res = await fetchWithTimeout(url, { method: 'GET', httpsAgent: proxyAgent });
             const data = res.data;
             if (data.status !== -1) return data;
-            logger.warn(Retry ${i + 1} DODO API status -1);
+            logger.warn(`Retry ${i + 1} DODO API status -1`);
         } catch (e) {
-            logger.warn(Retry ${i + 1} failed: ${e.message});
+            logger.warn(`Retry ${i + 1} failed: ${e.message}`);
         }
         await new Promise(r => setTimeout(r, 2000));
     }
@@ -486,7 +490,7 @@ async function fetchDodoRoute(fromAddr, toAddr, userAddr, amountWei, proxyAgent)
         logger.success('DODO Route Info fetched successfully');
         return result.data;
     } catch (err) {
-        logger.error(DODO API fetch failed: ${err.message});
+        logger.error(`DODO API fetch failed: ${err.message}`);
         throw err;
     }
 }
@@ -497,22 +501,22 @@ async function approveToken(wallet, tokenAddr, tokenSymbol, amount, spender, dec
     try {
         const balance = await contract.balanceOf(wallet.address);
         if (balance < amount) {
-            logger.error(Insufficient ${tokenSymbol} balance: ${ethers.formatUnits(balance, decimals)} ${tokenSymbol});
+            logger.error(`Insufficient ${tokenSymbol} balance: ${ethers.formatUnits(balance, decimals)} ${tokenSymbol}`);
             return false;
         }
         const allowance = await contract.allowance(wallet.address, spender);
         if (allowance >= amount) {
-            logger.info(${tokenSymbol} already approved for ${spender});
+            logger.info(`${tokenSymbol} already approved for ${spender}`);
             return true;
         }
-        logger.step(Approving ${ethers.formatUnits(amount, decimals)} ${tokenSymbol} for spender ${spender});
+        logger.step(`Approving ${ethers.formatUnits(amount, decimals)} ${tokenSymbol} for spender ${spender}`);
         const tx = await contract.approve(spender, amount);
-        logger.success(Approval TX sent: ${tx.hash});
+        logger.success(`Approval TX sent: ${tx.hash}`);
         await tx.wait();
         logger.success('Approval confirmed');
         return true;
     } catch (e) {
-        logger.error(Approval for ${tokenSymbol} failed: ${e.message});
+        logger.error(`Approval for ${tokenSymbol} failed: ${e.message}`);
         return false;
     }
 }
@@ -520,30 +524,30 @@ async function approveToken(wallet, tokenAddr, tokenSymbol, amount, spender, dec
 async function executeSwap(wallet, routeData, fromAddr, fromSymbol, amount, decimals) {
     if (fromAddr !== TOKENS.PHRS) {
         const approved = await approveToken(wallet, fromAddr, fromSymbol, amount, DODO_ROUTER, decimals);
-        if (!approved) throw new Error(Token approval for ${fromSymbol} failed);
+        if (!approved) throw new Error(`Token approval for ${fromSymbol} failed`);
     }
 
     try {
-        if (!routeData.data  routeData.data === '0x') {
+        if (!routeData.data || routeData.data === '0x') {
             throw new Error('Invalid transaction data from DODO API');
         }
         const tx = await wallet.sendTransaction({
             to: routeData.to,
             data: routeData.data,
             value: BigInt(routeData.value),
-            gasLimit: BigInt(routeData.gasLimit  500000)
+            gasLimit: BigInt(routeData.gasLimit || 500000)
         });
-        logger.success(Swap Transaction sent! TX Hash: ${tx.hash});
+        logger.success(`Swap Transaction sent! TX Hash: ${tx.hash}`);
         await tx.wait();
         logger.success('Transaction confirmed!');
     } catch (e) {
-        logger.error(Swap TX failed: ${e.message});
+        logger.error(`Swap TX failed: ${e.message}`);
         throw e;
     }
 }
 
 async function batchSwap(wallet, numberOfCycles, proxyAgent) {
-    logger.section(Starting ${numberOfCycles} swap cycles (${numberOfCycles * 4} total swaps) for wallet ${wallet.address});
+    logger.section(`Starting ${numberOfCycles} swap cycles (${numberOfCycles * 4} total swaps) for wallet ${wallet.address}`);
     const swaps = [];
     const swapPairs = [
         { from: TOKENS.PHRS, to: TOKENS.USDT, amount: PHRS_TO_USDT_AMOUNT, fromSymbol: 'PHRS', toSymbol: 'USDT', decimals: 18 },
@@ -558,17 +562,17 @@ async function batchSwap(wallet, numberOfCycles, proxyAgent) {
 
     for (let i = 0; i < swaps.length; i++) {
         const { from, to, amount, fromSymbol, toSymbol, decimals } = swaps[i];
-        const pair = ${fromSymbol} -> ${toSymbol};
-        logger.step(Executing Swap #${i + 1} of ${swaps.length}: ${pair});
+        const pair = `${fromSymbol} -> ${toSymbol}`;
+        logger.step(`Executing Swap #${i + 1} of ${swaps.length}: ${pair}`);
         try {
             const data = await fetchDodoRoute(from, to, wallet.address, amount, proxyAgent);
             await executeSwap(wallet, data, from, fromSymbol, amount, decimals);
         } catch (e) {
-            logger.error(Swap #${i + 1} failed: ${e.message});
+            logger.error(`Swap #${i + 1} failed: ${e.message}`);
         }
         await new Promise(r => setTimeout(r, 2000));
     }
-    logger.section(Swap cycles completed for wallet ${wallet.address});
+    logger.section(`Swap cycles completed for wallet ${wallet.address}`);
 }
 
 async function addLiquidity(wallet) {
@@ -599,12 +603,12 @@ async function addLiquidity(wallet) {
             dvmAddress, baseInAmount, quoteInAmount, baseMinAmount, quoteMinAmount, flag, deadline
         );
 
-        logger.success(Add Liquidity transaction sent! TX Hash: ${tx.hash});
+        logger.success(`Add Liquidity transaction sent! TX Hash: ${tx.hash}`);
         await tx.wait();
         logger.success('Transaction confirmed! Liquidity added successfully.');
 
     } catch (e) {
-        logger.error(Add Liquidity failed: ${e.message});
+        logger.error(`Add Liquidity failed: ${e.message}`);
         throw e;
     }
 }
@@ -617,7 +621,7 @@ async function sendTip(wallet, username) {
         const randomAmount = minAmount + BigInt(Math.floor(Math.random() * Number(maxAmount - minAmount + BigInt(1))));
         const amountStr = ethers.formatEther(randomAmount);
 
-        logger.step(Preparing to tip ${amountStr} PHRS to ${username} on X...);
+        logger.step(`Preparing to tip ${amountStr} PHRS to ${username} on X...`);
         
         const tipContract = new ethers.Contract(PRIMUS_TIP_CONTRACT, PRIMUS_TIP_ABI, wallet);
 
@@ -626,7 +630,7 @@ async function sendTip(wallet, username) {
             '0x0000000000000000000000000000000000000000' // Address for native token
         ];
 
-const recipientStruct = [
+        const recipientStruct = [
             'x', // Platform (e.g., 'x' for Twitter)
             username,
             randomAmount,
@@ -637,12 +641,12 @@ const recipientStruct = [
             value: randomAmount // Send native token as value
         });
 
-        logger.success(Tip transaction sent! TX Hash: ${tx.hash});
+        logger.success(`Tip transaction sent! TX Hash: ${tx.hash}`);
         await tx.wait();
-        logger.success(Successfully tipped ${amountStr} PHRS to ${username}!);
+        logger.success(`Successfully tipped ${amountStr} PHRS to ${username}!`);
 
     } catch (e) {
-        logger.error(Send Tip failed: ${e.message});
+        logger.error(`Send Tip failed: ${e.message}`);
         throw e;
     }
 }
@@ -661,7 +665,7 @@ async function showCountdown(intervalMs) {
             const hours = Math.floor(remaining / (1000 * 60 * 60));
             const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
             const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
-            logger.countdown(Next cycle in ${hours}h ${minutes}m ${seconds}s);
+            logger.countdown(`Next cycle in ${hours}h ${minutes}m ${seconds}s`);
         }, 1000);
     });
 }
@@ -672,13 +676,23 @@ const rl = readline.createInterface({
 });
 
 function askQuestion(query) {
-    return new Promise(resolve => rl.question(${colors.cyan}[?] ${query}${colors.reset}, resolve));
+    return new Promise(resolve => rl.question(`${colors.cyan}[?] ${query}${colors.reset}`, resolve));
 }
 
 (async () => {
     logger.banner();
+
+    // Menambahkan pesan dan link Telegram
+    console.log(`${colors.green}${colors.bold}Hi !!`);
+    console.log(`How Are you Today??${colors.reset}\n`);
+    console.log(`${colors.yellow}${colors.bold}Donate For Watermelon 🍉`);
+    console.log(`Usdt Or USdc`);
+    console.log(`${colors.white}0xf01fb9a6855f175d3f3e28e00fa617009c38ef59${colors.reset}\n`);
+    console.log(`${colors.cyan}Send your proof to telegram ${colors.bold}t.me/VirtualAssistant19_bot${colors.reset}`);
+    console.log(`${colors.cyan}select menu /script_access_on_github${colors.reset}\n`);
+    
     const fallbackProvider = await buildFallbackProvider(PHAROS_RPC_URLS, PHAROS_CHAIN_ID, 'pharos');
-    const providerInstance = await fallbackProvider.getProvider(); // Menggunakan nama variabel yang berbeda agar tidak bentrok
+    const providerInstance = await fallbackProvider.getProvider();
     const privateKeys = loadPrivateKeys();
     const proxies = loadProxies();
 
@@ -687,64 +701,64 @@ function askQuestion(query) {
         process.exit(1);
     }
     
-    logger.info(${privateKeys.length} wallet(s) loaded from .env file.\n);
+    logger.info(`${privateKeys.length} wallet(s) loaded from .env file.\n`);
 
-    const swapCycleStr = await askQuestion(Enter the number of daily swap cycles (for each wallet): );
+    const swapCycleStr = await askQuestion(`Enter the number of daily swap cycles (for each wallet): `);
     const numberOfSwapCycles = parseInt(swapCycleStr);
 
-    const liquidityCountStr = await askQuestion(Enter the number of add liquidity transactions (for each wallet): );
+    const liquidityCountStr = await askQuestion(`Enter the number of add liquidity transactions (for each wallet): `);
     const numberOfLiquidityAdds = parseInt(liquidityCountStr);
 
-    const aquaFluxMintStr = await askQuestion(Enter the number of AquaFlux mints (for each wallet): );
+    const aquaFluxMintStr = await askQuestion(`Enter the number of AquaFlux mints (for each wallet): `);
     const numberOfMints = parseInt(aquaFluxMintStr);
     
-    const username = await askQuestion(Enter the X username to tip (the same user will be tipped by all wallets): );
-    const tipCountStr = await askQuestion(Enter the number of tips to send (from each wallet): );
+    const username = await askQuestion(`Enter the X username to tip (the same user will be tipped by all wallets): `);
+    const tipCountStr = await askQuestion(`Enter the number of tips to send (from each wallet): `);
     const numberOfTips = parseInt(tipCountStr);
     console.log('\n');
 
     // Loop utama untuk menjalankan tugas secara berulang
     while (true) {
-        logger.section(Starting new cycle of tasks for all wallets at ${new Date().toLocaleString()});
+        logger.section(`Starting new cycle of tasks for all wallets at ${new Date().toLocaleString()}`);
         for (const [index, privateKey] of privateKeys.entries()) {
             try {
                 // Gunakan providerInstance yang sudah didapatkan dari buildFallbackProvider
                 const wallet = new ethers.Wallet(privateKey, providerInstance);
                 const proxyAgent = getProxyAgent(proxies);
-                logger.step(Processing Wallet ${index + 1}/${privateKeys.length}: ${wallet.address});
+                logger.step(`Processing Wallet ${index + 1}/${privateKeys.length}: ${wallet.address}`);
                 logger.section(''); // Garis pemisah untuk setiap dompet
 
-if (!isNaN(numberOfMints) && numberOfMints > 0) {
+                if (!isNaN(numberOfMints) && numberOfMints > 0) {
                     for (let i = 0; i < numberOfMints; i++) {
-                        logger.step(Starting AquaFlux Mint #${i + 1} of ${numberOfMints});
+                        logger.step(`Starting AquaFlux Mint #${i + 1} of ${numberOfMints}`);
                         const aquaFluxSuccess = await executeAquaFluxFlow(wallet, proxyAgent);
                         if (!aquaFluxSuccess) {
-                            logger.error(AquaFlux Mint #${i + 1} failed. Check logs above. Stopping AquaFlux mints for this wallet.);
-                            break;
+                            logger.error(`AquaFlux Mint #${i + 1} failed. Check logs above. Stopping AquaFlux mints for this wallet.`);
+                            break; // Stop minting for this wallet if one fails
                         }
                         if (i < numberOfMints - 1) {
                             logger.info('Waiting a moment before the next mint...');
                             await new Promise(r => setTimeout(r, 5000));
                         }
                     }
-                } else if (index === 0) { 
+                } else if (index === 0) { // Hanya tampilkan peringatan sekali
                     logger.warn('Invalid AquaFlux mint count or 0, skipping mints.');
                 }
 
                 if (!isNaN(numberOfSwapCycles) && numberOfSwapCycles > 0) {
                     await batchSwap(wallet, numberOfSwapCycles, proxyAgent);
                     logger.success('Swap cycle completed for this wallet!');
-                } else if (index === 0) { 
+                } else if (index === 0) { // Hanya tampilkan peringatan sekali
                     logger.warn('Invalid swap cycle count or 0, skipping swaps.');
                 }
 
                 if (!isNaN(numberOfLiquidityAdds) && numberOfLiquidityAdds > 0) {
                     for(let i = 0; i < numberOfLiquidityAdds; i++) {
-                        logger.step(Executing Add Liquidity #${i + 1} of ${numberOfLiquidityAdds});
+                        logger.step(`Executing Add Liquidity #${i + 1} of ${numberOfLiquidityAdds}`);
                         try {
                             await addLiquidity(wallet);
                         } catch (e) {
-                            logger.error(Add Liquidity transaction #${i + 1} failed: ${e.message});
+                            logger.error(`Add Liquidity transaction #${i + 1} failed: ${e.message}`);
                         }
                         await new Promise(r => setTimeout(r, 2000));
                     }
@@ -755,11 +769,11 @@ if (!isNaN(numberOfMints) && numberOfMints > 0) {
 
                 if (username && !isNaN(numberOfTips) && numberOfTips > 0) {
                     for (let i = 0; i < numberOfTips; i++) {
-                        logger.step(Executing Tip #${i + 1} of ${numberOfTips} to ${username});
+                        logger.step(`Executing Tip #${i + 1} of ${numberOfTips} to ${username}`);
                         try {
                             await sendTip(wallet, username);
                         } catch (e) {
-                            logger.error(Tip transaction #${i + 1} failed: ${e.message});
+                            logger.error(`Tip transaction #${i + 1} failed: ${e.message}`);
                         }
                         if (i < numberOfTips - 1) {
                             logger.info('Waiting a moment before the next tip...');
@@ -767,18 +781,18 @@ if (!isNaN(numberOfMints) && numberOfMints > 0) {
                         }
                     }
                     logger.success('Send tip operations completed for this wallet!');
-                } else if (index === 0) {
+                } else if (index === 0) { // Hanya tampilkan peringatan sekali
                     logger.warn('Invalid username or tip count, skipping tips.');
                 }
 
-                logger.summary(All tasks finished for wallet ${wallet.address}\n);
+                logger.summary(`All tasks finished for wallet ${wallet.address}\n`);
 
             } catch (err) {
-                logger.critical(A critical error occurred while processing wallet ${index + 1}: ${err.message});
+                logger.critical(`A critical error occurred while processing wallet ${index + 1}: ${err.message}`);
             }
 
             if (index < privateKeys.length - 1) {
-                logger.info(Waiting 10 seconds before starting the next wallet...);
+                logger.info(`Waiting 10 seconds before starting the next wallet...`);
                 await new Promise(r => setTimeout(r, 10000));
             }
         }
