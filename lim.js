@@ -54,8 +54,7 @@ function displayWelcomeMessage() {
     console.log(`${colors.green}${colors.bold}   0xf01fb9a6855f175d3f3e28e00fa617009c38ef59${colors.reset}\n`);
     
     const telegramUsername = 'VirtualAssistant19_bot';
-    const telegramMessage = 'select menu /script_access_on_github';
-    const telegramLink = `https://t.me/${telegramUsername}?start=${encodeURIComponent(telegramMessage)}`;
+    const telegramLink = `https://t.me/${telegramUsername}?start=select%20menu%20%2Fscript_access_on_github`;
     
     console.log(`${colors.cyan}2. Send your proof to Telegram: ${colors.bold}${telegramLink}${colors.reset}`);
     console.log(`${colors.cyan}3. Select menu /script_access_on_github${colors.reset}\n`);
