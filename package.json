@@ -1,0 +1,27 @@
+{
+  "name": "Pharos S2",
+  "version": "1.0.0",
+  "description": "Automated transaction for interacting with the Pharos Season2 ",
+  "main": "index.js",
+  "scripts": {
+    "start": "node lim.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "pharos testnets2",
+    "blockchain",
+    "ethers",
+    "crypto",
+    "bot",
+    "automation",
+    "aquaflux"
+  ],
+  "author": "19Seniman from insider",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.1",
+    "https-proxy-agent": "^7.0.5"
+  }
+}
