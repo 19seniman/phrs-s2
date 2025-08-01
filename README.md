@@ -1,8 +1,8 @@
 ```
-git clone 
+git clone https://github.com/19seniman/phrs-s2.git
 ```
 ```
-cd 
+cd phrs-s2
 ```
 ```
 npm install
