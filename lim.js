@@ -101,7 +101,41 @@ const logger = {
     },
     countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
 };
-// --- END OF NEW LOGGER IMPLEMENTATION ---
+
+// --- TRANSACTION HELPER FUNCTIONS ---
+
+async function getFeeWithBump(provider) {
+  const fee = await provider.getFeeData();
+  // Return a 20% bump on gas fees to make transactions more robust
+  return {
+    maxFeePerGas: (fee.maxFeePerGas * 120n) / 100n,
+    maxPriorityFeePerGas: (fee.maxPriorityFeePerGas * 120n) / 100n
+  };
+}
+
+async function waitForTransaction(txResponse, walletAddress) {
+  if (!txResponse) {
+    logger.warn(`Received an undefined transaction response for wallet ${walletAddress}. Skipping wait.`);
+    return null;
+  }
+  try {
+    return await txResponse.wait();
+  } catch (e) {
+    if (e.code === 'TRANSACTION_REPLACED') {
+      logger.warn(`Transaction from ${walletAddress} with hash ${txResponse.hash} was replaced.`);
+      if (e.receipt) {
+        logger.info(`Replacement transaction successful with hash: ${e.receipt.hash}`);
+        return e.receipt;
+      }
+      logger.warn('Could not find replacement receipt. The transaction may have been cancelled.');
+      return null;
+    }
+    // For other errors, re-throw them so they can be caught by the main loop
+    throw e;
+  }
+}
+
+// --- END OF HELPER FUNCTIONS ---
 
 
 async function buildFallbackProvider(rpcUrls, chainId, name) {
@@ -148,8 +182,9 @@ async function ensureAllowance(wallet, tokenAddr, spender, requiredAmount) {
   const allowance = await contract.allowance(wallet.address, spender);
   if (allowance >= requiredAmount) return true;
   logger.info(`Approving spender ${spender} for token ${tokenAddr}`);
-  const tx = await contract.approve(spender, ethers.MaxUint256);
-  await tx.wait();
+  const feeWithBump = await getFeeWithBump(wallet.provider);
+  const tx = await contract.approve(spender, ethers.MaxUint256, feeWithBump);
+  await waitForTransaction(tx, wallet.address);
   logger.success('Approval successful.');
   return true;
 }
@@ -167,18 +202,18 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   const template = await fetchTemplate(side, provider);
   const encodedAmt = encodeAmountHex(amountUSDT, 6);
   const patchedData = patchAmountInCalldata(template, TOKENS.USDT, encodedAmt);
-  const fee = await provider.getFeeData();
+  const feeWithBump = await getFeeWithBump(provider);
   const gas = await provider.estimateGas({ from: wallet.address, to: TRADE_CONTRACT, data: patchedData });
   const tx = await wallet.sendTransaction({
     chainId: PHAROS_CHAIN_ID,
     to: TRADE_CONTRACT,
     data: patchedData,
     gasLimit: gas,
-    maxFeePerGas: fee.maxFeePerGas,
-    maxPriorityFeePerGas: fee.maxPriorityFeePerGas
+    maxFeePerGas: feeWithBump.maxFeePerGas,
+    maxPriorityFeePerGas: feeWithBump.maxPriorityFeePerGas
   });
   logger.info(`Trade transaction sent: ${tx.hash}`);
-  await tx.wait();
+  await waitForTransaction(tx, wallet.address);
   logger.success(`${side.toUpperCase()} successful!`);
 }
 
@@ -284,8 +319,9 @@ async function mintNFT(wallet, signatureData) {
     }
     const allowance = await csTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
     if (allowance < requiredAmount) {
-      const approvalTx = await csTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256);
-      await approvalTx.wait();
+      const feeWithBump = await getFeeWithBump(wallet.provider);
+      const approvalTx = await csTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
+      await waitForTransaction(approvalTx, wallet.address);
     }
     const currentTime = Math.floor(Date.now() / 1000);
     if (currentTime >= signatureData.expiresAt) {
@@ -298,15 +334,17 @@ async function mintNFT(wallet, signatureData) {
       [signatureData.nftType, signatureData.expiresAt, signatureData.signature]
     );
     const calldata = CORRECT_METHOD_ID + encodedParams.substring(2);
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx = await wallet.sendTransaction({
       to: AQUAFLUX_NFT_CONTRACT,
       data: calldata,
-      gasLimit: 400000
+      gasLimit: 400000,
+      ...feeWithBump
     });
     logger.info(`NFT mint transaction sent! TX Hash: ${tx.hash}`);
-    const receipt = await tx.wait();
-    if (receipt.status === 0) {
-      throw new Error('Transaction reverted on-chain. Check the transaction on a block explorer.');
+    const receipt = await waitForTransaction(tx, wallet.address);
+    if (!receipt || receipt.status === 0) {
+      throw new Error('Transaction reverted or was replaced and failed.');
     }
     logger.success('NFT minted successfully!');
     return true;
@@ -396,9 +434,10 @@ async function approveToken(wallet, tokenAddr, tokenSymbol, amount, spender, dec
       return true;
     }
     logger.info(`Approving ${ethers.formatUnits(amount, decimals)} ${tokenSymbol} for spender ${spender}`);
-    const tx = await contract.approve(spender, amount);
+    const feeWithBump = await getFeeWithBump(wallet.provider);
+    const tx = await contract.approve(spender, amount, feeWithBump);
     logger.info(`Approval TX sent: ${tx.hash}`);
-    await tx.wait();
+    await waitForTransaction(tx, wallet.address);
     logger.success('Approval confirmed');
     return true;
   } catch (e) {
@@ -415,14 +454,16 @@ async function executeSwap(wallet, routeData, fromAddr, fromSymbol, amount, deci
     if (!routeData.data || routeData.data === '0x') {
       throw new Error('Invalid transaction data from DODO API');
     }
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx = await wallet.sendTransaction({
       to: routeData.to,
       data: routeData.data,
       value: BigInt(routeData.value),
-      gasLimit: BigInt(routeData.gasLimit || 500000)
+      gasLimit: BigInt(routeData.gasLimit || 500000),
+      ...feeWithBump
     });
     logger.info(`Swap Transaction sent! TX Hash: ${tx.hash}`);
-    await tx.wait();
+    await waitForTransaction(tx, wallet.address);
     logger.success('Transaction confirmed!');
   } catch (e) {
     logger.error(`Swap TX failed: ${e.message}`);
@@ -477,14 +518,16 @@ async function swapR2USDToUSDC(wallet, amount) {
       "function burn(address _from, uint256 _amount)"
     ]);
     const data = burnIface.encodeFunctionData("burn", [wallet.address, amount]);
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx = await wallet.sendTransaction({
       to: TOKENS.R2USD,
       data,
-      gasLimit: 250000
+      gasLimit: 250000,
+      ...feeWithBump
     });
     logger.info(`Swap TX sent: ${tx.hash}`);
-    const rc = await tx.wait();
-    if (rc.status === 0) throw new Error('R2USD burn reverted');
+    const rc = await waitForTransaction(tx, wallet.address);
+    if (!rc || rc.status === 0) throw new Error('R2USD burn reverted or was replaced and failed.');
     logger.success("R2USD -> USDC swap confirmed!");
   } catch (e) {
     logger.error(`R2USD->USDC swap failed: ${e.message}`);
@@ -500,14 +543,16 @@ async function swapUSDCToR2USD(wallet, amount) {
     try {
       const template = await _fetchR2usd095eTemplate(wallet.provider);
       const data = _patch095eTemplate(template, wallet.address, amount);
+      const feeWithBump = await getFeeWithBump(wallet.provider);
       const tx = await wallet.sendTransaction({
         to: TOKENS.R2USD,
         data,
-        gasLimit: 140000
+        gasLimit: 140000,
+        ...feeWithBump
       });
       logger.info(`Swap TX (0x095e7a95 templated) sent: ${tx.hash}`);
-      const rc = await tx.wait();
-      if (rc.status === 0) throw new Error('0x095e7a95 templated path reverted');
+      const rc = await waitForTransaction(tx, wallet.address);
+      if (!rc || rc.status === 0) throw new Error('0x095e7a95 templated path reverted or replaced and failed.');
       logger.success("USDC -> R2USD swap confirmed via 0x095e7a95 template!");
       return;
     } catch (inner) {
@@ -517,14 +562,16 @@ async function swapUSDCToR2USD(wallet, amount) {
       "function mint(address _to, uint256 _amount)"
     ]);
     const mintData = mintIface.encodeFunctionData("mint", [wallet.address, amount]);
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx2 = await wallet.sendTransaction({
       to: TOKENS.R2USD,
       data: mintData,
-      gasLimit: 300000
+      gasLimit: 300000,
+      ...feeWithBump
     });
     logger.info(`Swap TX (mint) sent: ${tx2.hash}`);
-    const rc2 = await tx2.wait();
-    if (rc2.status === 0) throw new Error('mint fallback reverted');
+    const rc2 = await waitForTransaction(tx2, wallet.address);
+    if (!rc2 || rc2.status === 0) throw new Error('mint fallback reverted or replaced and failed.');
     logger.success("USDC -> R2USD swap confirmed via mint!");
   } catch (e) {
     logger.error(`USDC->R2USD swap failed: ${e.message}`);
@@ -582,11 +629,12 @@ async function addLiquidity(wallet) {
     const quoteMinAmount = quoteInAmount * BigInt(999) / BigInt(1000);
     const flag = 0;
     const deadline = Math.floor(Date.now() / 1000) + 600;
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx = await liquidityContract.addDVMLiquidity(
-      dvmAddress, baseInAmount, quoteInAmount, baseMinAmount, quoteMinAmount, flag, deadline
+      dvmAddress, baseInAmount, quoteInAmount, baseMinAmount, quoteMinAmount, flag, deadline, feeWithBump
     );
-    logger.success(`Add Liquidity transaction sent! TX Hash: ${tx.hash}`);
-    await tx.wait();
+    logger.info(`Add Liquidity transaction sent! TX Hash: ${tx.hash}`);
+    await waitForTransaction(tx, wallet.address);
     logger.success('Transaction confirmed! Liquidity added successfully.');
   } catch (e) {
     logger.error(`Add Liquidity failed: ${e.message}`);
@@ -605,9 +653,13 @@ async function sendTip(wallet, username) {
     const tipContract = new ethers.Contract(PRIMUS_TIP_CONTRACT, PRIMUS_TIP_ABI, wallet);
     const tokenStruct = [1, '0x0000000000000000000000000000000000000000'];
     const recipientStruct = ['x', username, randomAmount, []];
-    const tx = await tipContract.tip(tokenStruct, recipientStruct, { value: randomAmount });
-    logger.success(`Tip transaction sent! TX Hash: ${tx.hash}`);
-    await tx.wait();
+    const feeWithBump = await getFeeWithBump(wallet.provider);
+    const tx = await tipContract.tip(tokenStruct, recipientStruct, { 
+        value: randomAmount,
+        ...feeWithBump
+    });
+    logger.info(`Tip transaction sent! TX Hash: ${tx.hash}`);
+    await waitForTransaction(tx, wallet.address);
     logger.success(`Successfully tipped ${amountStr} PHRS to ${username}!`);
   } catch (e) {
     logger.error(`Send Tip failed: ${e.message}`);
@@ -640,9 +692,13 @@ async function claimTokens(wallet) {
   logger.step('Claiming free AquaFlux tokens (C & S)...');
   try {
     const nftContract = new ethers.Contract(AQUAFLUX_NFT_CONTRACT, AQUAFLUX_NFT_ABI, wallet);
-    const tx = await nftContract.claimTokens({ gasLimit: 300000 });
-    logger.success(`Claim tokens transaction sent! TX Hash: ${tx.hash}`);
-    await tx.wait();
+    const feeWithBump = await getFeeWithBump(wallet.provider);
+    const tx = await nftContract.claimTokens({ 
+        gasLimit: 300000,
+        ...feeWithBump
+    });
+    logger.info(`Claim tokens transaction sent! TX Hash: ${tx.hash}`);
+    await waitForTransaction(tx, wallet.address);
     logger.success('Tokens claimed successfully!');
     return true;
   } catch (e) {
@@ -673,15 +729,17 @@ async function craftTokens(wallet) {
     const cAllowance = await cTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
     if (cAllowance < requiredAmount) {
       logger.step('Approving C tokens...');
-      const cApproveTx = await cTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256);
-      await cApproveTx.wait();
+      const feeWithBump = await getFeeWithBump(wallet.provider);
+      const cApproveTx = await cTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
+      await waitForTransaction(cApproveTx, wallet.address);
       logger.success('C tokens approved');
     }
     const sAllowance = await sTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
     if (sAllowance < requiredAmount) {
       logger.step('Approving S tokens...');
-      const sApproveTx = await sTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256);
-      await sApproveTx.wait();
+      const feeWithBump = await getFeeWithBump(wallet.provider);
+      const sApproveTx = await sTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
+      await waitForTransaction(sApproveTx, wallet.address);
       logger.success('S tokens approved');
     }
     const csBalanceBefore = await csTokenContract.balanceOf(wallet.address);
@@ -691,14 +749,16 @@ async function craftTokens(wallet) {
     const abiCoder = ethers.AbiCoder.defaultAbiCoder();
     const encodedParams = abiCoder.encode(['uint256'], [requiredAmount]);
     const calldata = CRAFT_METHOD_ID + encodedParams.substring(2);
+    const feeWithBump = await getFeeWithBump(wallet.provider);
     const craftTx = await wallet.sendTransaction({
       to: AQUAFLUX_NFT_CONTRACT,
       data: calldata,
-      gasLimit: 300000
+      gasLimit: 300000,
+      ...feeWithBump
     });
-    logger.success(`Crafting transaction sent! TX Hash: ${craftTx.hash}`);
-    const receipt = await craftTx.wait();
-    if (receipt.status === 0) throw new Error('Crafting transaction reverted on-chain');
+    logger.info(`Crafting transaction sent! TX Hash: ${craftTx.hash}`);
+    const receipt = await waitForTransaction(craftTx, wallet.address);
+    if (!receipt || receipt.status === 0) throw new Error('Crafting transaction reverted or was replaced and failed.');
     logger.success('Crafting transaction confirmed.');
     const csBalanceAfter = await csTokenContract.balanceOf(wallet.address);
     const craftedAmount = csBalanceAfter - csBalanceBefore;
@@ -776,3 +836,4 @@ function question(query) { return new Promise(resolve => rl.question(query, reso
   logger.critical(`Fatal error: ${err?.stack || err?.message || err}`);
   process.exit(1);
 });
+
