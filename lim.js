@@ -207,24 +207,27 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   
   let gas;
   try {
-    // Attempt to estimate gas
     gas = await provider.estimateGas({ from: wallet.address, to: TRADE_CONTRACT, data: patchedData });
   } catch (e) {
-    // If estimation fails, log a warning and use a fallback gas limit
     logger.warn(`Gas estimation failed for ${side.toUpperCase()} trade. Using a fallback limit. Error: ${e.message}`);
-    gas = 500000n; // Using a generous fallback BigInt limit: 500,000
+    gas = 500000n; 
   }
 
   const tx = await wallet.sendTransaction({
     chainId: PHAROS_CHAIN_ID,
     to: TRADE_CONTRACT,
     data: patchedData,
-    gasLimit: gas, // Use the estimated or fallback gas
+    gasLimit: gas,
     maxFeePerGas: feeWithBump.maxFeePerGas,
     maxPriorityFeePerGas: feeWithBump.maxPriorityFeePerGas
   });
   logger.info(`Trade transaction sent: ${tx.hash}`);
-  await waitForTransaction(tx, wallet.address);
+  const receipt = await waitForTransaction(tx, wallet.address);
+
+  if (!receipt || receipt.status === 0) {
+      throw new Error("Transaction failed on-chain");
+  }
+
   logger.success(`${side.toUpperCase()} successful!`);
 }
 
@@ -494,11 +497,10 @@ const R2USD_095E7A95_TEMPLATE_FALLBACK =
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
-
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
+ '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000';
 function _pad32Addr(addr) {
   return '000000000000000000000000' + addr.toLowerCase().replace(/^0x/, '');
@@ -821,8 +823,21 @@ function question(query) { return new Promise(resolve => rl.question(query, reso
       logger.section(`Processing Wallet ${i + 1}/${privateKeys.length}: ${wallet.address}`);
       
       for (let t = 0; t < numberOfTrades; t++) {
-        await executeLongShort(wallet, provider, "long", tradeAmount);
-        await executeLongShort(wallet, provider, "short", tradeAmount);
+        try {
+            logger.info(`Attempting LONG trade #${t + 1}/${numberOfTrades}`);
+            await executeLongShort(wallet, provider, "long", tradeAmount);
+        } catch (e) {
+            logger.error(`LONG trade #${t + 1} failed for wallet ${wallet.address}: The transaction was rejected on-chain.`);
+        }
+        await new Promise(r => setTimeout(r, 2000));
+
+        try {
+            logger.info(`Attempting SHORT trade #${t + 1}/${numberOfTrades}`);
+            await executeLongShort(wallet, provider, "short", tradeAmount);
+        } catch (e) {
+            logger.error(`SHORT trade #${t + 1} failed for wallet ${wallet.address}: The transaction was rejected on-chain.`);
+        }
+        await new Promise(r => setTimeout(r, 2000));
       }
       if (numberOfMints > 0) {
         await executeAquaFluxFlow(wallet, proxyAgent);
