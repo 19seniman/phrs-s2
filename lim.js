@@ -195,6 +195,7 @@ async function fetchTemplate(side, provider) {
   const resp = await provider.send("eth_getTransactionByHash", [txHash]);
   return resp.input;
 }
+
 async function executeLongShort(wallet, provider, side, amountUSDT) {
   logger.step(`Executing ${side.toUpperCase()} with ${amountUSDT} USDT...`);
   const required = ethers.parseUnits(amountUSDT, 6);
@@ -203,12 +204,22 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   const encodedAmt = encodeAmountHex(amountUSDT, 6);
   const patchedData = patchAmountInCalldata(template, TOKENS.USDT, encodedAmt);
   const feeWithBump = await getFeeWithBump(provider);
-  const gas = await provider.estimateGas({ from: wallet.address, to: TRADE_CONTRACT, data: patchedData });
+  
+  let gas;
+  try {
+    // Attempt to estimate gas
+    gas = await provider.estimateGas({ from: wallet.address, to: TRADE_CONTRACT, data: patchedData });
+  } catch (e) {
+    // If estimation fails, log a warning and use a fallback gas limit
+    logger.warn(`Gas estimation failed for ${side.toUpperCase()} trade. Using a fallback limit. Error: ${e.message}`);
+    gas = 500000n; // Using a generous fallback BigInt limit: 500,000
+  }
+
   const tx = await wallet.sendTransaction({
     chainId: PHAROS_CHAIN_ID,
     to: TRADE_CONTRACT,
     data: patchedData,
-    gasLimit: gas,
+    gasLimit: gas, // Use the estimated or fallback gas
     maxFeePerGas: feeWithBump.maxFeePerGas,
     maxPriorityFeePerGas: feeWithBump.maxPriorityFeePerGas
   });
@@ -216,6 +227,7 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   await waitForTransaction(tx, wallet.address);
   logger.success(`${side.toUpperCase()} successful!`);
 }
+
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -482,6 +494,7 @@ const R2USD_095E7A95_TEMPLATE_FALLBACK =
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
+
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
   '0000000000000000000000000000000000000000000000000000000000000000' +
@@ -836,4 +849,3 @@ function question(query) { return new Promise(resolve => rl.question(query, reso
   logger.critical(`Fatal error: ${err?.stack || err?.message || err}`);
   process.exit(1);
 });
-
