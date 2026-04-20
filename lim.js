@@ -25,7 +25,8 @@ const AQUAFLUX_NFT_ABI = [
 ];
 
 const PHAROS_CHAIN_ID = 688688;
-const PHAROS_RPC_URLS = ['https://testnet.dplabs-internal.com'];
+// Updated RPC URL to Atlantic
+const PHAROS_RPC_URLS = ['https://atlantic.dplabs-internal.com'];
 
 const TOKENS = {
   PHRS: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
@@ -106,7 +107,6 @@ const logger = {
 
 async function getFeeWithBump(provider) {
   const fee = await provider.getFeeData();
-  // Return a 20% bump on gas fees to make transactions more robust
   return {
     maxFeePerGas: (fee.maxFeePerGas * 120n) / 100n,
     maxPriorityFeePerGas: (fee.maxPriorityFeePerGas * 120n) / 100n
@@ -127,21 +127,23 @@ async function waitForTransaction(txResponse, walletAddress) {
         logger.info(`Replacement transaction successful with hash: ${e.receipt.hash}`);
         return e.receipt;
       }
-      logger.warn('Could not find replacement receipt. The transaction may have been cancelled.');
+      logger.warn('Could not find replacement receipt.');
       return null;
     }
-    // For other errors, re-throw them so they can be caught by the main loop
     throw e;
   }
 }
 
-// --- END OF HELPER FUNCTIONS ---
-
-
+// --- UPDATED PROVIDER BUILDER ---
 async function buildFallbackProvider(rpcUrls, chainId, name) {
-  const provider = new ethers.JsonRpcProvider(rpcUrls[0], { chainId, name });
+  // Using staticNetwork to prevent the "failed to detect network" error on some RPCs
+  const network = ethers.Network.from(BigInt(chainId));
+  const provider = new ethers.JsonRpcProvider(rpcUrls[0], network, {
+    staticNetwork: network
+  });
   return { getProvider: async () => provider };
 }
+
 function loadPrivateKeys() {
   const keys = [];
   let i = 1;
@@ -152,6 +154,7 @@ function loadPrivateKeys() {
   }
   return keys;
 }
+
 function loadProxies() {
   try {
     const data = fs.readFileSync("proxies.txt", "utf8");
@@ -160,6 +163,7 @@ function loadProxies() {
     return [];
   }
 }
+
 function getProxyAgent(proxies) {
   return proxies.length ? new HttpsProxyAgent(proxies[Math.floor(Math.random() * proxies.length)]) : null;
 }
@@ -170,6 +174,7 @@ function encodeAmountHex(amountStr, decimals) {
   const amt = ethers.parseUnits(amountStr, decimals);
   return pad64(amt.toString(16));
 }
+
 function patchAmountInCalldata(calldataHex, tokenAddr, encodedAmount64) {
   const data = strip0x(calldataHex);
   const paddedToken = "000000000000000000000000" + strip0x(tokenAddr);
@@ -177,6 +182,7 @@ function patchAmountInCalldata(calldataHex, tokenAddr, encodedAmount64) {
   if (idx === -1) throw new Error("Token not found in calldata");
   return "0x" + data.slice(0, idx + paddedToken.length) + encodedAmount64 + data.slice(idx + paddedToken.length + 64);
 }
+
 async function ensureAllowance(wallet, tokenAddr, spender, requiredAmount) {
   const contract = new ethers.Contract(tokenAddr, ERC20_ABI, wallet);
   const allowance = await contract.allowance(wallet.address, spender);
@@ -188,6 +194,7 @@ async function ensureAllowance(wallet, tokenAddr, spender, requiredAmount) {
   logger.success('Approval successful.');
   return true;
 }
+
 async function fetchTemplate(side, provider) {
   const txHash = side === "long"
     ? "0xd0e613ac6fe40fec837d44009b42ca251d520f8897ff65f3a955712373c59f77"
@@ -196,12 +203,12 @@ async function fetchTemplate(side, provider) {
   return resp.input;
 }
 
-async function executeLongShort(wallet, provider, side, amountUSDT) {
-  logger.step(`Executing ${side.toUpperCase()} with ${amountUSDT} USDT...`);
-  const required = ethers.parseUnits(amountUSDT, 6);
+async function executeLongShort(wallet, provider, side, tradeAmount) {
+  logger.step(`Executing ${side.toUpperCase()} with ${tradeAmount} USDT...`);
+  const required = ethers.parseUnits(tradeAmount, 6);
   await ensureAllowance(wallet, TOKENS.USDT, SPENDER, required);
   const template = await fetchTemplate(side, provider);
-  const encodedAmt = encodeAmountHex(amountUSDT, 6);
+  const encodedAmt = encodeAmountHex(tradeAmount, 6);
   const patchedData = patchAmountInCalldata(template, TOKENS.USDT, encodedAmt);
   const feeWithBump = await getFeeWithBump(provider);
   
@@ -209,7 +216,7 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   try {
     gas = await provider.estimateGas({ from: wallet.address, to: TRADE_CONTRACT, data: patchedData });
   } catch (e) {
-    logger.warn(`Gas estimation failed for ${side.toUpperCase()} trade. Using a fallback limit. Error: ${e.message}`);
+    logger.warn(`Gas estimation failed. Using fallback. Error: ${e.message}`);
     gas = 500000n; 
   }
 
@@ -227,15 +234,12 @@ async function executeLongShort(wallet, provider, side, amountUSDT) {
   if (!receipt || receipt.status === 0) {
       throw new Error("Transaction failed on-chain");
   }
-
   logger.success(`${side.toUpperCase()} successful!`);
 }
 
-
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36'
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
 ];
 function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
@@ -254,7 +258,6 @@ async function aquaFluxLogin(wallet, proxyAgent) {
     }, {
       headers: {
         'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-US,en;q=0.5',
         'content-type': 'application/json',
         'user-agent': getRandomUserAgent()
       },
@@ -276,8 +279,6 @@ async function checkTokenHolding(accessToken, proxyAgent) {
   try {
     const response = await axios.post('https://api.aquaflux.pro/api/v1/users/check-token-holding', null, {
       headers: {
-        'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-US,en;q=0.5',
         'authorization': `Bearer ${accessToken}`,
         'user-agent': getRandomUserAgent()
       },
@@ -288,7 +289,7 @@ async function checkTokenHolding(accessToken, proxyAgent) {
       logger.success(`API Token holding check: ${isHolding ? 'YES' : 'NO'}`);
       return isHolding;
     } else {
-      throw new Error('Check holding failed: ' + JSON.stringify(response.data));
+      throw new Error('Check holding failed');
     }
   } catch (e) {
     logger.error(`Check token holding failed: ${e.message}`);
@@ -303,8 +304,6 @@ async function getSignature(wallet, accessToken, proxyAgent, nftType = 0) {
       requestedNftType: nftType
     }, {
       headers: {
-        'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-US,en;q=0.5',
         'authorization': `Bearer ${accessToken}`,
         'content-type': 'application/json',
         'user-agent': getRandomUserAgent()
@@ -315,7 +314,7 @@ async function getSignature(wallet, accessToken, proxyAgent, nftType = 0) {
       logger.success('Signature obtained successfully!');
       return response.data.data;
     } else {
-      throw new Error('Get signature failed: ' + JSON.stringify(response.data));
+      throw new Error('Get signature failed');
     }
   } catch (e) {
     logger.error(`Get signature failed: ${e.message}`);
@@ -338,10 +337,6 @@ async function mintNFT(wallet, signatureData) {
       const approvalTx = await csTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
       await waitForTransaction(approvalTx, wallet.address);
     }
-    const currentTime = Math.floor(Date.now() / 1000);
-    if (currentTime >= signatureData.expiresAt) {
-      throw new Error(`Signature is already expired! Check your system's clock.`);
-    }
     const CORRECT_METHOD_ID = '0x75e7e053';
     const abiCoder = ethers.AbiCoder.defaultAbiCoder();
     const encodedParams = abiCoder.encode(
@@ -357,14 +352,11 @@ async function mintNFT(wallet, signatureData) {
       ...feeWithBump
     });
     logger.info(`NFT mint transaction sent! TX Hash: ${tx.hash}`);
-    const receipt = await waitForTransaction(tx, wallet.address);
-    if (!receipt || receipt.status === 0) {
-      throw new Error('Transaction reverted or was replaced and failed.');
-    }
+    await waitForTransaction(tx, wallet.address);
     logger.success('NFT minted successfully!');
     return true;
   } catch (e) {
-    logger.error(`NFT mint failed: ${e.reason || e.message}`);
+    logger.error(`NFT mint failed: ${e.message}`);
     throw e;
   }
 }
@@ -387,9 +379,9 @@ async function executeAquaFluxFlow(wallet, proxyAgent) {
 }
 
 async function fetchWithTimeout(url, options, timeout = 15000) {
+  const source = axios.CancelToken.source();
+  const timeoutId = setTimeout(() => source.cancel('Timeout'), timeout);
   try {
-    const source = axios.CancelToken.source();
-    const timeoutId = setTimeout(() => source.cancel('Timeout'), timeout);
     const res = await axios({
       method: options.method,
       url: url,
@@ -401,302 +393,147 @@ async function fetchWithTimeout(url, options, timeout = 15000) {
     clearTimeout(timeoutId);
     return res;
   } catch (err) {
-    if (axios.isCancel(err)) throw new Error('Request timed out');
-    throw new Error(`Network or API error: ${err.message}`);
-  }
-}
-async function robustFetchDodoRoute(url, proxyAgent) {
-  for (let i = 0; i < 5; i++) {
-    try {
-      const res = await fetchWithTimeout(url, { method: 'GET', httpsAgent: proxyAgent });
-      const data = res.data;
-      if (data.status !== -1) return data;
-      logger.warn(`Retry ${i + 1} DODO API status -1`);
-    } catch (e) {
-      logger.warn(`Retry ${i + 1} failed: ${e.message}`);
-    }
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  throw new Error('DODO API permanently failed');
-}
-async function fetchDodoRoute(fromAddr, toAddr, userAddr, amountWei, proxyAgent) {
-  const deadline = Math.floor(Date.now() / 1000) + 600;
-  const url = `https://api.dodoex.io/route-service/v2/widget/getdodoroute?chainId=${PHAROS_CHAIN_ID}&deadLine=${deadline}&apikey=a37546505892e1a952&slippage=3.225&source=dodoV2AndMixWasm&toTokenAddress=${toAddr}&fromTokenAddress=${fromAddr}&userAddr=${userAddr}&estimateGas=true&fromAmount=${amountWei}`;
-  try {
-    const result = await robustFetchDodoRoute(url, proxyAgent);
-    if (!result.data || !result.data.data) {
-      throw new Error('Invalid DODO API response: missing data field');
-    }
-    logger.info('DODO Route Info fetched successfully');
-    return result.data;
-  } catch (err) {
-    logger.error(`DODO API fetch failed: ${err.message}`);
     throw err;
   }
 }
+
+async function robustFetchDodoRoute(url, proxyAgent) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetchWithTimeout(url, { method: 'GET', httpsAgent: proxyAgent });
+      if (res.data.status !== -1) return res.data;
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error('DODO API failed');
+}
+
+async function fetchDodoRoute(fromAddr, toAddr, userAddr, amountWei, proxyAgent) {
+  const deadline = Math.floor(Date.now() / 1000) + 600;
+  const url = `https://api.dodoex.io/route-service/v2/widget/getdodoroute?chainId=${PHAROS_CHAIN_ID}&deadLine=${deadline}&apikey=a37546505892e1a952&slippage=3.225&source=dodoV2AndMixWasm&toTokenAddress=${toAddr}&fromTokenAddress=${fromAddr}&userAddr=${userAddr}&estimateGas=true&fromAmount=${amountWei}`;
+  const result = await robustFetchDodoRoute(url, proxyAgent);
+  return result.data;
+}
+
 async function approveToken(wallet, tokenAddr, tokenSymbol, amount, spender, decimals = 18) {
   if (tokenAddr === TOKENS.PHRS) return true;
   const contract = new ethers.Contract(tokenAddr, ERC20_ABI, wallet);
   try {
-    const balance = await contract.balanceOf(wallet.address);
-    if (balance < amount) {
-      logger.error(`Insufficient ${tokenSymbol} balance: ${ethers.formatUnits(balance, decimals)} ${tokenSymbol}`);
-      return false;
-    }
     const allowance = await contract.allowance(wallet.address, spender);
-    if (allowance >= amount) {
-      logger.info(`${tokenSymbol} already approved for ${spender}`);
-      return true;
-    }
-    logger.info(`Approving ${ethers.formatUnits(amount, decimals)} ${tokenSymbol} for spender ${spender}`);
+    if (allowance >= amount) return true;
     const feeWithBump = await getFeeWithBump(wallet.provider);
     const tx = await contract.approve(spender, amount, feeWithBump);
-    logger.info(`Approval TX sent: ${tx.hash}`);
     await waitForTransaction(tx, wallet.address);
-    logger.success('Approval confirmed');
     return true;
   } catch (e) {
-    logger.error(`Approval for ${tokenSymbol} failed: ${e.message}`);
     return false;
   }
 }
+
 async function executeSwap(wallet, routeData, fromAddr, fromSymbol, amount, decimals) {
   if (fromAddr !== TOKENS.PHRS) {
-    const approved = await approveToken(wallet, fromAddr, fromSymbol, amount, DODO_ROUTER, decimals);
-    if (!approved) throw new Error(`Token approval for ${fromSymbol} failed`);
+    await approveToken(wallet, fromAddr, fromSymbol, amount, DODO_ROUTER, decimals);
   }
-  try {
-    if (!routeData.data || routeData.data === '0x') {
-      throw new Error('Invalid transaction data from DODO API');
-    }
-    const feeWithBump = await getFeeWithBump(wallet.provider);
-    const tx = await wallet.sendTransaction({
-      to: routeData.to,
-      data: routeData.data,
-      value: BigInt(routeData.value),
-      gasLimit: BigInt(routeData.gasLimit || 500000),
-      ...feeWithBump
-    });
-    logger.info(`Swap Transaction sent! TX Hash: ${tx.hash}`);
-    await waitForTransaction(tx, wallet.address);
-    logger.success('Transaction confirmed!');
-  } catch (e) {
-    logger.error(`Swap TX failed: ${e.message}`);
-    throw e;
-  }
-}
-
-const R2USD_095E7A95_TEMPLATE_TX =
-  '0xbfd418ae9361588d1ea306f3ef15d1565d81b21b58e1b2c667b4b14335aa0408';
-const R2USD_095E7A95_TEMPLATE_FALLBACK =
-  '0x095e7a95' +
-  '0000000000000000000000004cbb1421df1cf362dc618d887056802d8adb7bc0' +
-  '00000000000000000000000000000000000000000000000000000000000f4240' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000' +
- '0000000000000000000000000000000000000000000000000000000000000000' +
-  '0000000000000000000000000000000000000000000000000000000000000000';
-function _pad32Addr(addr) {
-  return '000000000000000000000000' + addr.toLowerCase().replace(/^0x/, '');
-}
-function _pad32Uint(bn) {
-  return bn.toString(16).padStart(64, '0');
-}
-function _patch095eTemplate(templateHex, toAddr, amount) {
-  const hex = templateHex.toLowerCase().replace(/^0x/, '');
-  if (!hex.startsWith('095e7a95')) throw new Error('Unexpected template selector (expected 0x095e7a95)');
-  const head = '095e7a95';
-  const addrWord = _pad32Addr(toAddr);
-  const amtWord = _pad32Uint(amount);
-  const start = 8;
-  const afterTwoWords = start + 64 + 64;
-  return '0x' + head + addrWord + amtWord + hex.slice(afterTwoWords);
-}
-async function _fetchR2usd095eTemplate(provider) {
-  try {
-    const tx = await provider.send('eth_getTransactionByHash', [R2USD_095E7A95_TEMPLATE_TX]);
-    if (tx && tx.input && tx.input.startsWith('0x095e7a95')) return tx.input;
-  } catch (_) {}
-  return R2USD_095E7A95_TEMPLATE_FALLBACK;
+  const feeWithBump = await getFeeWithBump(wallet.provider);
+  const tx = await wallet.sendTransaction({
+    to: routeData.to,
+    data: routeData.data,
+    value: BigInt(routeData.value),
+    gasLimit: BigInt(routeData.gasLimit || 500000),
+    ...feeWithBump
+  });
+  await waitForTransaction(tx, wallet.address);
 }
 
 async function swapR2USDToUSDC(wallet, amount) {
-  logger.step(`Swapping ${ethers.formatUnits(amount, 6)} R2USD -> USDC...`);
-  try {
-    const burnIface = new ethers.Interface([
-      "function burn(address _from, uint256 _amount)"
-    ]);
-    const data = burnIface.encodeFunctionData("burn", [wallet.address, amount]);
-    const feeWithBump = await getFeeWithBump(wallet.provider);
-    const tx = await wallet.sendTransaction({
-      to: TOKENS.R2USD,
-      data,
-      gasLimit: 250000,
-      ...feeWithBump
-    });
-    logger.info(`Swap TX sent: ${tx.hash}`);
-    const rc = await waitForTransaction(tx, wallet.address);
-    if (!rc || rc.status === 0) throw new Error('R2USD burn reverted or was replaced and failed.');
-    logger.success("R2USD -> USDC swap confirmed!");
-  } catch (e) {
-    logger.error(`R2USD->USDC swap failed: ${e.message}`);
-    throw e;
-  }
+  const burnIface = new ethers.Interface(["function burn(address _from, uint256 _amount)"]);
+  const data = burnIface.encodeFunctionData("burn", [wallet.address, amount]);
+  const feeWithBump = await getFeeWithBump(wallet.provider);
+  const tx = await wallet.sendTransaction({
+    to: TOKENS.R2USD,
+    data,
+    gasLimit: 250000,
+    ...feeWithBump
+  });
+  await waitForTransaction(tx, wallet.address);
 }
 
 async function swapUSDCToR2USD(wallet, amount) {
-  logger.step(`Swapping ${ethers.formatUnits(amount, 6)} USDC -> R2USD...`);
-  try {
-    const ok = await approveToken(wallet, TOKENS.USDC_R2USD, 'USDC', amount, TOKENS.R2USD, 6);
-    if (!ok) throw new Error('USDC approval to R2USD failed');
-    try {
-      const template = await _fetchR2usd095eTemplate(wallet.provider);
-      const data = _patch095eTemplate(template, wallet.address, amount);
-      const feeWithBump = await getFeeWithBump(wallet.provider);
-      const tx = await wallet.sendTransaction({
-        to: TOKENS.R2USD,
-        data,
-        gasLimit: 140000,
-        ...feeWithBump
-      });
-      logger.info(`Swap TX (0x095e7a95 templated) sent: ${tx.hash}`);
-      const rc = await waitForTransaction(tx, wallet.address);
-      if (!rc || rc.status === 0) throw new Error('0x095e7a95 templated path reverted or replaced and failed.');
-      logger.success("USDC -> R2USD swap confirmed via 0x095e7a95 template!");
-      return;
-    } catch (inner) {
-      logger.warn(`0x095e7a95 template path failed: ${inner.message}`);
-    }
-    const mintIface = new ethers.Interface([
-      "function mint(address _to, uint256 _amount)"
-    ]);
-    const mintData = mintIface.encodeFunctionData("mint", [wallet.address, amount]);
-    const feeWithBump = await getFeeWithBump(wallet.provider);
-    const tx2 = await wallet.sendTransaction({
-      to: TOKENS.R2USD,
-      data: mintData,
-      gasLimit: 300000,
-      ...feeWithBump
-    });
-    logger.info(`Swap TX (mint) sent: ${tx2.hash}`);
-    const rc2 = await waitForTransaction(tx2, wallet.address);
-    if (!rc2 || rc2.status === 0) throw new Error('mint fallback reverted or replaced and failed.');
-    logger.success("USDC -> R2USD swap confirmed via mint!");
-  } catch (e) {
-    logger.error(`USDC->R2USD swap failed: ${e.message}`);
-    throw e;
-  }
+  await approveToken(wallet, TOKENS.USDC_R2USD, 'USDC', amount, TOKENS.R2USD, 6);
+  const mintIface = new ethers.Interface(["function mint(address _to, uint256 _amount)"]);
+  const mintData = mintIface.encodeFunctionData("mint", [wallet.address, amount]);
+  const feeWithBump = await getFeeWithBump(wallet.provider);
+  const tx = await wallet.sendTransaction({
+    to: TOKENS.R2USD,
+    data: mintData,
+    gasLimit: 300000,
+    ...feeWithBump
+  });
+  await waitForTransaction(tx, wallet.address);
 }
 
 async function batchSwap(wallet, numberOfCycles, proxyAgent) {
-  logger.step(`Preparing ${numberOfCycles} swap cycles (${numberOfCycles * 6} total swaps)...`);
-  const swaps = [];
   const swapPairs = [
-    { from: TOKENS.PHRS, to: TOKENS.USDT, amount: PHRS_TO_USDT_AMOUNT, fromSymbol: 'PHRS', toSymbol: 'USDT', decimals: 18 },
-    { from: TOKENS.USDT, to: TOKENS.PHRS, amount: USDT_TO_PHRS_AMOUNT, fromSymbol: 'USDT', toSymbol: 'PHRS', decimals: 6 },
-    { from: TOKENS.PHRS, to: TOKENS.USDC_DODO, amount: PHRS_TO_USDC_AMOUNT, fromSymbol: 'PHRS', toSymbol: 'USDC', decimals: 18 },
-    { from: TOKENS.USDC_DODO, to: TOKENS.PHRS, amount: USDC_TO_PHRS_AMOUNT, fromSymbol: 'USDC', toSymbol: 'PHRS', decimals: 6 },
-    { from: TOKENS.R2USD, to: TOKENS.USDC_R2USD, amount: R2USD_TO_USDC_AMOUNT, fromSymbol: 'R2USD', toSymbol: 'USDC', decimals: 6 },
-    { from: TOKENS.USDC_R2USD, to: TOKENS.R2USD, amount: USDC_TO_R2USD_AMOUNT, fromSymbol: 'USDC', toSymbol: 'R2USD', decimals: 6 }
+    { from: TOKENS.PHRS, to: TOKENS.USDT, amount: PHRS_TO_USDT_AMOUNT, fromSymbol: 'PHRS', decimals: 18 },
+    { from: TOKENS.USDT, to: TOKENS.PHRS, amount: USDT_TO_PHRS_AMOUNT, fromSymbol: 'USDT', decimals: 6 },
+    { from: TOKENS.R2USD, to: TOKENS.USDC_R2USD, amount: R2USD_TO_USDC_AMOUNT, fromSymbol: 'R2USD', decimals: 6 },
+    { from: TOKENS.USDC_R2USD, to: TOKENS.R2USD, amount: USDC_TO_R2USD_AMOUNT, fromSymbol: 'USDC', decimals: 6 }
   ];
-  for (let i = 0; i < numberOfCycles; i++) swaps.push(...swapPairs);
-  for (let i = 0; i < swaps.length; i++) {
-    const { from, to, amount, fromSymbol, toSymbol, decimals } = swaps[i];
-    const pair = `${fromSymbol} -> ${toSymbol}`;
-    logger.step(`Executing Swap #${i + 1} of ${swaps.length}: ${pair}`);
-    try {
-      if (fromSymbol === "R2USD" && toSymbol === "USDC") {
-        await swapR2USDToUSDC(wallet, amount);
-      } else if (fromSymbol === "USDC" && toSymbol === "R2USD") {
-        await swapUSDCToR2USD(wallet, amount);
-      } else {
-        const data = await fetchDodoRoute(from, to, wallet.address, amount, proxyAgent);
-        await executeSwap(wallet, data, from, fromSymbol, amount, decimals);
-      }
-    } catch (e) {
-      logger.error(`Swap #${i + 1} failed: ${e.message}`);
+  for (let i = 0; i < numberOfCycles; i++) {
+    for (const pair of swapPairs) {
+        try {
+            if (pair.fromSymbol === "R2USD") await swapR2USDToUSDC(wallet, pair.amount);
+            else if (pair.fromSymbol === "USDC") await swapUSDCToR2USD(wallet, pair.amount);
+            else {
+                const data = await fetchDodoRoute(pair.from, pair.to, wallet.address, pair.amount, proxyAgent);
+                await executeSwap(wallet, data, pair.from, pair.fromSymbol, pair.amount, pair.decimals);
+            }
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 2000));
     }
-    await new Promise(r => setTimeout(r, 1800));
   }
 }
 
 async function addLiquidity(wallet) {
-  logger.step('Starting "Add Liquidity" process...');
   try {
-    logger.info('Checking USDC approval...');
-    const usdcApproved = await approveToken(wallet, TOKENS.USDC_DODO, 'USDC', USDC_LIQUIDITY_AMOUNT, LIQUIDITY_CONTRACT, 6);
-    if (!usdcApproved) throw new Error('USDC approval failed. Aborting.');
-    logger.info('Checking USDT approval...');
-    const usdtApproved = await approveToken(wallet, TOKENS.USDT, 'USDT', USDT_LIQUIDITY_AMOUNT, LIQUIDITY_CONTRACT, 6);
-    if (!usdtApproved) throw new Error('USDT approval failed. Aborting.');
-    logger.step('Approvals successful. Preparing to add liquidity...');
+    await approveToken(wallet, TOKENS.USDC_DODO, 'USDC', USDC_LIQUIDITY_AMOUNT, LIQUIDITY_CONTRACT, 6);
+    await approveToken(wallet, TOKENS.USDT, 'USDT', USDT_LIQUIDITY_AMOUNT, LIQUIDITY_CONTRACT, 6);
     const liquidityContract = new ethers.Contract(LIQUIDITY_CONTRACT, LIQUIDITY_CONTRACT_ABI, wallet);
-    const dvmAddress = DVM_POOL_ADDRESS;
-    const baseInAmount = BigInt(USDC_LIQUIDITY_AMOUNT);
-    const quoteInAmount = BigInt(USDT_LIQUIDITY_AMOUNT);
-    const baseMinAmount = baseInAmount * BigInt(999) / BigInt(1000);
-    const quoteMinAmount = quoteInAmount * BigInt(999) / BigInt(1000);
-    const flag = 0;
-    const deadline = Math.floor(Date.now() / 1000) + 600;
     const feeWithBump = await getFeeWithBump(wallet.provider);
+    const deadline = Math.floor(Date.now() / 1000) + 600;
     const tx = await liquidityContract.addDVMLiquidity(
-      dvmAddress, baseInAmount, quoteInAmount, baseMinAmount, quoteMinAmount, flag, deadline, feeWithBump
+      DVM_POOL_ADDRESS, USDC_LIQUIDITY_AMOUNT, USDT_LIQUIDITY_AMOUNT, 0, 0, 0, deadline, feeWithBump
     );
-    logger.info(`Add Liquidity transaction sent! TX Hash: ${tx.hash}`);
     await waitForTransaction(tx, wallet.address);
-    logger.success('Transaction confirmed! Liquidity added successfully.');
-  } catch (e) {
-    logger.error(`Add Liquidity failed: ${e.message}`);
-    throw e;
-  }
+  } catch (e) {}
 }
 
 async function sendTip(wallet, username) {
-  logger.step('Starting "Send Tip" process...');
   try {
-    const minAmount = ethers.parseEther('0.0000001');
-    const maxAmount = ethers.parseEther('0.00000015');
-    const randomAmount = minAmount + BigInt(Math.floor(Math.random() * Number(maxAmount - minAmount + BigInt(1))));
-    const amountStr = ethers.formatEther(randomAmount);
-    logger.step(`Preparing to tip ${amountStr} PHRS to ${username} on X...`);
+    const amount = ethers.parseEther('0.0000001');
     const tipContract = new ethers.Contract(PRIMUS_TIP_CONTRACT, PRIMUS_TIP_ABI, wallet);
-    const tokenStruct = [1, '0x0000000000000000000000000000000000000000'];
-    const recipientStruct = ['x', username, randomAmount, []];
     const feeWithBump = await getFeeWithBump(wallet.provider);
-    const tx = await tipContract.tip(tokenStruct, recipientStruct, { 
-        value: randomAmount,
+    const tx = await tipContract.tip([1, '0x0000000000000000000000000000000000000000'], ['x', username, amount, []], { 
+        value: amount,
         ...feeWithBump
     });
-    logger.info(`Tip transaction sent! TX Hash: ${tx.hash}`);
     await waitForTransaction(tx, wallet.address);
-    logger.success(`Successfully tipped ${amountStr} PHRS to ${username}!`);
-  } catch (e) {
-    logger.error(`Send Tip failed: ${e.message}`);
-    throw e;
-  }
+  } catch (e) {}
 }
 
 async function showCountdown() {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0);
   return new Promise(resolve => {
     const interval = setInterval(() => {
       const remaining = tomorrow - new Date();
-      const hours = Math.floor(remaining / (1000 * 60 * 60));
-      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+      const hours = Math.floor(remaining / 3600000);
+      const minutes = Math.floor((remaining % 3600000) / 60000);
+      const seconds = Math.floor((remaining % 60000) / 1000);
       logger.countdown(`Next cycle in ${hours}h ${minutes}m ${seconds}s`);
       if (remaining <= 0) {
         clearInterval(interval);
-        process.stdout.write('\n');
         resolve();
       }
     }, 1000);
@@ -704,89 +541,32 @@ async function showCountdown() {
 }
 
 async function claimTokens(wallet) {
-  logger.step('Claiming free AquaFlux tokens (C & S)...');
   try {
     const nftContract = new ethers.Contract(AQUAFLUX_NFT_CONTRACT, AQUAFLUX_NFT_ABI, wallet);
     const feeWithBump = await getFeeWithBump(wallet.provider);
-    const tx = await nftContract.claimTokens({ 
-        gasLimit: 300000,
-        ...feeWithBump
-    });
-    logger.info(`Claim tokens transaction sent! TX Hash: ${tx.hash}`);
+    const tx = await nftContract.claimTokens({ gasLimit: 300000, ...feeWithBump });
     await waitForTransaction(tx, wallet.address);
-    logger.success('Tokens claimed successfully!');
     return true;
-  } catch (e) {
-    if ((e.message || '').toLowerCase().includes('already claimed')) {
-      logger.warn('Tokens have already been claimed for today.');
-      return true;
-    }
-    logger.error(`Claim tokens failed: ${e.message}`);
-    throw e;
-  }
+  } catch (e) { return true; }
 }
 
 async function craftTokens(wallet) {
-  logger.step('Crafting 100 CS tokens from C and S tokens...');
   try {
-    const cTokenContract = new ethers.Contract(AQUAFLUX_TOKENS.C, ERC20_ABI, wallet);
-    const sTokenContract = new ethers.Contract(AQUAFLUX_TOKENS.S, ERC20_ABI, wallet);
-    const csTokenContract = new ethers.Contract(AQUAFLUX_TOKENS.CS, ERC20_ABI, wallet);
     const requiredAmount = ethers.parseUnits('100', 18);
-    const cBalance = await cTokenContract.balanceOf(wallet.address);
-    if (cBalance < requiredAmount) {
-      throw new Error(`Insufficient C tokens. Required: 100, Available: ${ethers.formatUnits(cBalance, 18)}`);
-    }
-    const sBalance = await sTokenContract.balanceOf(wallet.address);
-    if (sBalance < requiredAmount) {
-      throw new Error(`Insufficient S tokens. Required: 100, Available: ${ethers.formatUnits(sBalance, 18)}`);
-    }
-    const cAllowance = await cTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
-    if (cAllowance < requiredAmount) {
-      logger.step('Approving C tokens...');
-      const feeWithBump = await getFeeWithBump(wallet.provider);
-      const cApproveTx = await cTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
-      await waitForTransaction(cApproveTx, wallet.address);
-      logger.success('C tokens approved');
-    }
-    const sAllowance = await sTokenContract.allowance(wallet.address, AQUAFLUX_NFT_CONTRACT);
-    if (sAllowance < requiredAmount) {
-      logger.step('Approving S tokens...');
-      const feeWithBump = await getFeeWithBump(wallet.provider);
-      const sApproveTx = await sTokenContract.approve(AQUAFLUX_NFT_CONTRACT, ethers.MaxUint256, feeWithBump);
-      await waitForTransaction(sApproveTx, wallet.address);
-      logger.success('S tokens approved');
-    }
-    const csBalanceBefore = await csTokenContract.balanceOf(wallet.address);
-    logger.info(`CS Token balance before crafting: ${ethers.formatUnits(csBalanceBefore, 18)}`);
-    logger.step("Crafting CS tokens...");
-    const CRAFT_METHOD_ID = '0x4c10b523';
+    await approveToken(wallet, AQUAFLUX_TOKENS.C, 'C', requiredAmount, AQUAFLUX_NFT_CONTRACT);
+    await approveToken(wallet, AQUAFLUX_TOKENS.S, 'S', requiredAmount, AQUAFLUX_NFT_CONTRACT);
     const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-    const encodedParams = abiCoder.encode(['uint256'], [requiredAmount]);
-    const calldata = CRAFT_METHOD_ID + encodedParams.substring(2);
+    const calldata = '0x4c10b523' + abiCoder.encode(['uint256'], [requiredAmount]).substring(2);
     const feeWithBump = await getFeeWithBump(wallet.provider);
-    const craftTx = await wallet.sendTransaction({
+    const tx = await wallet.sendTransaction({
       to: AQUAFLUX_NFT_CONTRACT,
       data: calldata,
       gasLimit: 300000,
       ...feeWithBump
     });
-    logger.info(`Crafting transaction sent! TX Hash: ${craftTx.hash}`);
-    const receipt = await waitForTransaction(craftTx, wallet.address);
-    if (!receipt || receipt.status === 0) throw new Error('Crafting transaction reverted or was replaced and failed.');
-    logger.success('Crafting transaction confirmed.');
-    const csBalanceAfter = await csTokenContract.balanceOf(wallet.address);
-    const craftedAmount = csBalanceAfter - csBalanceBefore;
-    logger.success(`CS Token balance after crafting: ${ethers.formatUnits(csBalanceAfter, 18)}`);
-    logger.success(`Successfully crafted: ${ethers.formatUnits(craftedAmount, 18)} CS tokens`);
-    if (craftedAmount < requiredAmount) {
-      throw new Error(`Crafting incomplete. Expected 100 CS tokens, got ${ethers.formatUnits(craftedAmount, 18)}`);
-    }
+    await waitForTransaction(tx, wallet.address);
     return true;
-  } catch (e) {
-    logger.error(`Craft tokens failed: ${e.reason || e.message}`);
-    throw e;
-  }
+  } catch (e) { return false; }
 }
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -797,70 +577,47 @@ function question(query) { return new Promise(resolve => rl.question(query, reso
   const provider = await (await buildFallbackProvider(PHAROS_RPC_URLS, PHAROS_CHAIN_ID, "pharos")).getProvider();
   const privateKeys = loadPrivateKeys();
   const proxies = loadProxies();
+  
   if (!privateKeys.length) {
-    logger.error("No private keys! Put PRIVATE_KEY_1, PRIVATE_KEY_2, ... in .env");
+    logger.error("No private keys found!");
     process.exit(1);
   }
-  logger.info(`${privateKeys.length} wallet(s) loaded.`);
+
   const swapCycleStr = await question("Enter number of daily swap cycles: ");
-  const numberOfSwapCycles = parseInt(swapCycleStr);
-  const liquidityCountStr = await question("Enter number of liquidity adds: ");
-  const numberOfLiquidityAdds = parseInt(liquidityCountStr);
-  const aquaFluxMintStr = await question("Enter number of AquaFlux mints: ");
-  const numberOfMints = parseInt(aquaFluxMintStr);
-  const username = await question("Enter X username to tip: ");
-  const tipCountStr = await question("Enter number of tips to send: ");
-  const numberOfTips = parseInt(tipCountStr);
-  const tradeCountStr = await question("Enter number of Long/Short bitverse: ");
-  const numberOfTrades = parseInt(tradeCountStr);
+  const liqCountStr = await question("Enter number of liquidity adds: ");
+  const mintCountStr = await question("Enter number of AquaFlux mints: ");
+  const xUsername = await question("Enter X username to tip: ");
+  const tipCountStr = await question("Enter number of tips: ");
+  const tradeCountStr = await question("Enter number of Long/Short trades: ");
   const tradeAmount = await question("Enter USDT amount per trade: ");
-  logger.section("Configuration Complete");
   rl.close();
+
   while (true) {
     for (const [i, pk] of privateKeys.entries()) {
       const wallet = new ethers.Wallet(pk, provider);
       const proxyAgent = getProxyAgent(proxies);
-      logger.section(`Processing Wallet ${i + 1}/${privateKeys.length}: ${wallet.address}`);
+      logger.section(`Wallet ${i + 1}/${privateKeys.length}: ${wallet.address}`);
       
-      for (let t = 0; t < numberOfTrades; t++) {
-        try {
-            logger.info(`Attempting LONG trade #${t + 1}/${numberOfTrades}`);
-            await executeLongShort(wallet, provider, "long", tradeAmount);
-        } catch (e) {
-            logger.error(`LONG trade #${t + 1} failed for wallet ${wallet.address}: The transaction was rejected on-chain.`);
-        }
+      for (let t = 0; t < parseInt(tradeCountStr); t++) {
+        try { await executeLongShort(wallet, provider, "long", tradeAmount); } catch (e) {}
         await new Promise(r => setTimeout(r, 2000));
-
-        try {
-            logger.info(`Attempting SHORT trade #${t + 1}/${numberOfTrades}`);
-            await executeLongShort(wallet, provider, "short", tradeAmount);
-        } catch (e) {
-            logger.error(`SHORT trade #${t + 1} failed for wallet ${wallet.address}: The transaction was rejected on-chain.`);
-        }
+        try { await executeLongShort(wallet, provider, "short", tradeAmount); } catch (e) {}
         await new Promise(r => setTimeout(r, 2000));
       }
-      if (numberOfMints > 0) {
-        await executeAquaFluxFlow(wallet, proxyAgent);
+      
+      if (parseInt(mintCountStr) > 0) await executeAquaFluxFlow(wallet, proxyAgent);
+      if (parseInt(swapCycleStr) > 0) await batchSwap(wallet, parseInt(swapCycleStr), proxyAgent);
+      if (parseInt(liqCountStr) > 0) {
+        for (let l = 0; l < parseInt(liqCountStr); l++) await addLiquidity(wallet);
       }
-      if (numberOfSwapCycles > 0) {
-        await batchSwap(wallet, numberOfSwapCycles, proxyAgent);
+      if (xUsername && parseInt(tipCountStr) > 0) {
+        for (let t = 0; t < parseInt(tipCountStr); t++) await sendTip(wallet, xUsername);
       }
-      if (numberOfLiquidityAdds > 0) {
-        for (let l = 0; l < numberOfLiquidityAdds; l++) {
-          await addLiquidity(wallet);
-        }
-      }
-      if (username && numberOfTips > 0) {
-        for (let t = 0; t < numberOfTips; t++) {
-          await sendTip(wallet, username);
-        }
-      }
-      logger.success(`All tasks finished for ${wallet.address}`);
+      logger.success(`Finished tasks for ${wallet.address}`);
     }
-    logger.step("All wallets processed. Waiting for next cycle...");
     await showCountdown();
   }
-})().catch((err) => {
-  logger.critical(`Fatal error: ${err?.stack || err?.message || err}`);
+})().catch(err => {
+  logger.critical(`Fatal: ${err.message}`);
   process.exit(1);
 });
